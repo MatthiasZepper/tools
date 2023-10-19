@@ -951,8 +951,6 @@ class DownloadWorkflow:
     def get_singularity_images(self, current_revision=""):
         """Loop through container names and download Singularity images"""
 
-        download_log = "download_commands.txt"
-
         if len(self.containers) == 0:
             log.info("No container names found in workflow")
         else:
@@ -960,160 +958,166 @@ class DownloadWorkflow:
                 f"Processing workflow revision {current_revision}, found {len(self.containers)} container image{'s' if len(self.containers) > 1 else ''} in total."
             )
 
+            container_paths = "container_paths.tsv"
+            download_commands = "download_commands.txt"
+
             with DownloadProgress() as progress:
-                task = progress.add_task(
-                    "Collecting container images", total=len(self.containers), progress_type="summary"
-                )
+                with open(container_paths, "a") as file_cp:
+                    task = progress.add_task(
+                        "Collecting container images", total=len(self.containers), progress_type="summary"
+                    )
 
-                # Organise containers based on what we need to do with them
-                containers_exist = []
-                containers_cache = []
-                containers_download = []
-                containers_pull = []
-                for container in self.containers:
-                    # Fetch the output and cached filenames for this container
-                    out_path, cache_path = self.singularity_image_filenames(container)
+                    # Organise containers based on what we need to do with them
+                    containers_exist = []
+                    containers_cache = []
+                    containers_download = []
+                    containers_pull = []
+                    file_cp.write(f"ContainerURI\tOutPath\tCachePath" + "\n")
+                    for container in self.containers:
+                        # Fetch the output and cached filenames for this container
+                        out_path, cache_path = self.singularity_image_filenames(container)
+                        file_cp.write(f"{container}\t{out_path}\t{cache_path}" + "\n")
 
-                    # Check that the directories exist
-                    out_path_dir = os.path.dirname(out_path)
-                    if not os.path.isdir(out_path_dir):
-                        log.debug(f"Output directory not found, creating: {out_path_dir}")
-                        os.makedirs(out_path_dir)
-                    if cache_path:
-                        cache_path_dir = os.path.dirname(cache_path)
-                        if not os.path.isdir(cache_path_dir):
-                            log.debug(f"Cache directory not found, creating: {cache_path_dir}")
-                            os.makedirs(cache_path_dir)
+                        # Check that the directories exist
+                        out_path_dir = os.path.dirname(out_path)
+                        if not os.path.isdir(out_path_dir):
+                            log.debug(f"Output directory not found, creating: {out_path_dir}")
+                            os.makedirs(out_path_dir)
+                        if cache_path:
+                            cache_path_dir = os.path.dirname(cache_path)
+                            if not os.path.isdir(cache_path_dir):
+                                log.debug(f"Cache directory not found, creating: {cache_path_dir}")
+                                os.makedirs(cache_path_dir)
 
-                    # We already have the target file in place or in remote cache, return
-                    if os.path.exists(out_path) or os.path.basename(out_path) in self.containers_remote:
-                        containers_exist.append(container)
-                        with open(download_log, "w") as file:
-                            file.write(f"curl -o '{container[1]}' '{container[0]}'" + "\n")
-                        continue
+                        # We already have the target file in place or in remote cache, return
+                        if os.path.exists(out_path) or os.path.basename(out_path) in self.containers_remote:
+                            containers_exist.append(container)
+                            continue
 
-                    # We have a copy of this in the NXF_SINGULARITY_CACHE dir
-                    if cache_path and os.path.exists(cache_path):
-                        containers_cache.append([container, out_path, cache_path])
-                        continue
+                        # We have a copy of this in the NXF_SINGULARITY_CACHE dir
+                        if cache_path and os.path.exists(cache_path):
+                            containers_cache.append([container, out_path, cache_path])
+                            continue
 
-                    # Direct download within Python
-                    if container.startswith("http"):
-                        containers_download.append([container, out_path, cache_path])
-                        continue
+                        # Direct download within Python
+                        if container.startswith("http"):
+                            containers_download.append([container, out_path, cache_path])
+                            continue
 
-                    # Pull using singularity
-                    containers_pull.append([container, out_path, cache_path])
+                        # Pull using singularity
+                        containers_pull.append([container, out_path, cache_path])
 
-                # Exit if we need to pull images and Singularity is not installed
-                if len(containers_pull) > 0:
-                    if not (shutil.which("singularity") or shutil.which("apptainer")):
-                        raise OSError(
-                            "Singularity/Apptainer is needed to pull images, but it is not installed or not in $PATH"
-                        )
+                    # Exit if we need to pull images and Singularity is not installed
+                    if len(containers_pull) > 0:
+                        if not (shutil.which("singularity") or shutil.which("apptainer")):
+                            raise OSError(
+                                "Singularity/Apptainer is needed to pull images, but it is not installed or not in $PATH"
+                            )
 
-                if containers_exist:
-                    if self.container_cache_index is not None:
-                        log.info(
-                            f"{len(containers_exist)} containers are already cached remotely and won't be retrieved."
-                        )
-                    # Go through each method of fetching containers in order
-                    for container in containers_exist:
-                        progress.update(task, description="Image file exists at destination")
-                        progress.update(task, advance=1)
+                    if containers_exist:
+                        if self.container_cache_index is not None:
+                            log.info(
+                                f"{len(containers_exist)} containers are already cached remotely and won't be retrieved."
+                            )
+                        # Go through each method of fetching containers in order
+                        for container in containers_exist:
+                            progress.update(task, description="Image file exists at destination")
+                            progress.update(task, advance=1)
 
-                if containers_cache:
-                    for container in containers_cache:
-                        progress.update(task, description="Copying singularity images from cache")
-                        self.singularity_copy_cache_image(*container)
-                        progress.update(task, advance=1)
+                    if containers_cache:
+                        for container in containers_cache:
+                            progress.update(task, description="Copying singularity images from cache")
+                            self.singularity_copy_cache_image(*container)
+                            progress.update(task, advance=1)
+                            with open(download_commands, "w") as file:
+                                file.write(f"cp '{container[2]}' '{container[1]}'" + "\n")
 
-                if containers_download or containers_pull:
-                    with open(download_log, "w") as file:
-                        for container in containers_download:
-                            file.write(f"curl -o '{container[1]}' '{container[0]}'" + "\n")
-                        for container in containers_pull:
-                            file.write(f"apptainer pull '{container[1]}' '{container[0]}'" + "\n")
+                    if containers_download or containers_pull:
+                        with open(download_commands, "a") as file_dl:
+                            for container in containers_download:
+                                file_dl.write(f"curl -o '{container[1]}' '{container[0]}'" + "\n")
+                            for container in containers_pull:
+                                file_dl.write(f"apptainer pull '{container[1]}' '{container[0]}'" + "\n")
 
-                    # if clause gives slightly better UX, because Download is no longer displayed if nothing is left to be downloaded.
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_downloads) as pool:
-                        progress.update(task, description="Downloading singularity images")
+                        # if clause gives slightly better UX, because Download is no longer displayed if nothing is left to be downloaded.
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_downloads) as pool:
+                            progress.update(task, description="Downloading singularity images")
 
-                        # Kick off concurrent downloads
-                        future_downloads = [
-                            pool.submit(self.singularity_download_image, *container, progress)
-                            for container in containers_download
-                        ]
+                            # Kick off concurrent downloads
+                            future_downloads = [
+                                pool.submit(self.singularity_download_image, *container, progress)
+                                for container in containers_download
+                            ]
 
-                        # Make ctrl-c work with multi-threading
-                        self.kill_with_fire = False
+                            # Make ctrl-c work with multi-threading
+                            self.kill_with_fire = False
 
-                        try:
-                            # Iterate over each threaded download, waiting for them to finish
-                            for future in concurrent.futures.as_completed(future_downloads):
-                                future.result()
-                                try:
-                                    progress.update(task, advance=1)
-                                except Exception as e:
-                                    log.error(f"Error updating progress bar: {e}")
-
-                        except KeyboardInterrupt:
-                            # Cancel the future threads that haven't started yet
-                            for future in future_downloads:
-                                future.cancel()
-                            # Set the variable that the threaded function looks for
-                            # Will trigger an exception from each thread
-                            self.kill_with_fire = True
-                            # Re-raise exception on the main thread
-                            raise
-
-                    for container in containers_pull:
-                        progress.update(task, description="Pulling singularity images")
-                        # it is possible to try multiple registries / mirrors if multiple were specified.
-                        # Iteration happens over a copy of self.container_library[:], as I want to be able to remove failing registries for subsequent images.
-                        for library in self.container_library[:]:
                             try:
-                                self.singularity_pull_image(*container, library, progress)
-                                # Pulling the image was successful, no ContainerError was raised, break the library loop
-                                break
-                            except ContainerError.ImageExists as e:
-                                # Pulling not required
-                                break
-                            except ContainerError.RegistryNotFound as e:
-                                self.container_library.remove(library)
-                                # The only library was removed
-                                if not self.container_library:
+                                # Iterate over each threaded download, waiting for them to finish
+                                for future in concurrent.futures.as_completed(future_downloads):
+                                    future.result()
+                                    try:
+                                        progress.update(task, advance=1)
+                                    except Exception as e:
+                                        log.error(f"Error updating progress bar: {e}")
+
+                            except KeyboardInterrupt:
+                                # Cancel the future threads that haven't started yet
+                                for future in future_downloads:
+                                    future.cancel()
+                                # Set the variable that the threaded function looks for
+                                # Will trigger an exception from each thread
+                                self.kill_with_fire = True
+                                # Re-raise exception on the main thread
+                                raise
+
+                        for container in containers_pull:
+                            progress.update(task, description="Pulling singularity images")
+                            # it is possible to try multiple registries / mirrors if multiple were specified.
+                            # Iteration happens over a copy of self.container_library[:], as I want to be able to remove failing registries for subsequent images.
+                            for library in self.container_library[:]:
+                                try:
+                                    self.singularity_pull_image(*container, library, progress)
+                                    # Pulling the image was successful, no ContainerError was raised, break the library loop
+                                    break
+                                except ContainerError.ImageExists as e:
+                                    # Pulling not required
+                                    break
+                                except ContainerError.RegistryNotFound as e:
+                                    self.container_library.remove(library)
+                                    # The only library was removed
+                                    if not self.container_library:
+                                        log.error(e.message)
+                                        log.error(e.helpmessage)
+                                        raise OSError from e
+                                    else:
+                                        # Other libraries can be used
+                                        continue
+                                except ContainerError.ImageNotFound as e:
+                                    # Try other registries
+                                    if e.error_log.absoluteURI:
+                                        break  # there no point in trying other registries if absolute URI was specified.
+                                    else:
+                                        continue
+                                except ContainerError.InvalidTag as e:
+                                    # Try other registries
+                                    continue
+                                except ContainerError.OtherError as e:
+                                    # Try other registries
                                     log.error(e.message)
                                     log.error(e.helpmessage)
-                                    raise OSError from e
-                                else:
-                                    # Other libraries can be used
-                                    continue
-                            except ContainerError.ImageNotFound as e:
-                                # Try other registries
-                                if e.error_log.absoluteURI:
-                                    break  # there no point in trying other registries if absolute URI was specified.
-                                else:
-                                    continue
-                            except ContainerError.InvalidTag as e:
-                                # Try other registries
-                                continue
-                            except ContainerError.OtherError as e:
-                                # Try other registries
-                                log.error(e.message)
-                                log.error(e.helpmessage)
-                                if e.error_log.absoluteURI:
-                                    break  # there no point in trying other registries if absolute URI was specified.
-                                else:
-                                    continue
-                        else:
-                            # The else clause executes after the loop completes normally.
-                            # This means the library loop completed without breaking, indicating failure for all libraries (registries)
-                            log.error(
-                                f"Not able to pull image of {container}. Service might be down or internet connection is dead."
-                            )
-                        # Task should advance in any case. Failure to pull will not kill the download process.
-                        progress.update(task, advance=1)
+                                    if e.error_log.absoluteURI:
+                                        break  # there no point in trying other registries if absolute URI was specified.
+                                    else:
+                                        continue
+                            else:
+                                # The else clause executes after the loop completes normally.
+                                # This means the library loop completed without breaking, indicating failure for all libraries (registries)
+                                log.error(
+                                    f"Not able to pull image of {container}. Service might be down or internet connection is dead."
+                                )
+                            # Task should advance in any case. Failure to pull will not kill the download process.
+                            progress.update(task, advance=1)
 
     def singularity_image_filenames(self, container):
         """Check Singularity cache for image, copy to destination folder if found.
