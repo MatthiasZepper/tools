@@ -988,6 +988,8 @@ class DownloadWorkflow:
                     # We already have the target file in place or in remote cache, return
                     if os.path.exists(out_path) or os.path.basename(out_path) in self.containers_remote:
                         containers_exist.append(container)
+                        with open(download_log, "w") as file:
+                            file.write(f"curl -o '{container[1]}' '{container[0]}'" + "\n")
                         continue
 
                     # We have a copy of this in the NXF_SINGULARITY_CACHE dir
