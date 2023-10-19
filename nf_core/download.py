@@ -951,6 +951,8 @@ class DownloadWorkflow:
     def get_singularity_images(self, current_revision=""):
         """Loop through container names and download Singularity images"""
 
+        download_log = "download_commands.txt"
+
         if len(self.containers) == 0:
             log.info("No container names found in workflow")
         else:
@@ -1025,6 +1027,12 @@ class DownloadWorkflow:
                         progress.update(task, advance=1)
 
                 if containers_download or containers_pull:
+                    with open(download_log, "w") as file:
+                        for container in containers_download:
+                            file.write(f"curl -o '{container[1]}' '{container[0]}'" + "\n")
+                        for container in containers_pull:
+                            file.write(f"apptainer pull '{container[1]}' '{container[0]}'" + "\n")
+
                     # if clause gives slightly better UX, because Download is no longer displayed if nothing is left to be downloaded.
                     with concurrent.futures.ThreadPoolExecutor(max_workers=self.parallel_downloads) as pool:
                         progress.update(task, description="Downloading singularity images")
