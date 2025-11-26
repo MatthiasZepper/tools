@@ -13,6 +13,8 @@
 
 ### Template
 
+- New pre-commit hooks (large files, merge conflicts) in pipeline template ([#3935](https://github.com/nf-core/tools/pull/3935))
+
 ### Linting
 
 ### Modules
