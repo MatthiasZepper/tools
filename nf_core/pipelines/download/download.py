@@ -354,6 +354,7 @@ class DownloadWorkflow:
             additional_tags=self.additional_tags,
             location=location if location else None,  # manual location is required for the tests to work
             in_cache=False,
+            force_checkout=self.force,
         )
 
         # Remove tags for those revisions that had not been selected

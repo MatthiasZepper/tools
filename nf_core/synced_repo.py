@@ -106,7 +106,7 @@ class SyncedRepo:
                     branches[sha] = branch_name
             return set(branches.values())
 
-    def __init__(self, remote_url=None, branch=None, no_pull=False, hide_progress=False):
+    def __init__(self, remote_url=None, branch=None, no_pull=False, hide_progress=False, force_checkout=False):
         """
         Initialize common synced-repo state.
 
@@ -119,6 +119,7 @@ class SyncedRepo:
         self.local_repo_dir = None
         self.repo = None
         self.hide_progress = hide_progress
+        self.allow_force_checkout = force_checkout
         # Populated by subclasses that manage modules/subworkflows repositories.
         self.repo_path: str | None = None
         self.modules_dir: Path | None = None
@@ -130,6 +131,9 @@ class SyncedRepo:
 
     def setup_local_repo(self, remote_url, branch, hide_progress):
         raise NotImplementedError("Subclasses must implement setup_local_repo().")
+
+    def _allow_force_checkout(self) -> bool:
+        return self.allow_force_checkout
 
     def _progress_disabled(self, hide_progress: bool) -> bool:
         return hide_progress or os.environ.get("HIDE_PROGRESS", None) is not None
@@ -262,9 +266,15 @@ class SyncedRepo:
                 and "modules" in self.fullname
                 and "Your local changes to the following files would be overwritten by checkout" in str(e)
             ):
-                # Keep legacy force-checkout behavior for now; revisit policy in a dedicated follow-up.
-                log.debug(f"Overwriting local changes in '{self.local_repo_dir}'")
-                self.repo.git.checkout(self.branch, force=True)
+                if self._allow_force_checkout():
+                    log.warning(f"Overwriting local changes in '{self.local_repo_dir}' due to explicit opt-in.")
+                    self.repo.git.checkout(self.branch, force=True)
+                else:
+                    log.error(
+                        "Refusing to overwrite local changes during checkout. "
+                        "Commit/stash your changes first, or rerun with --force to opt in."
+                    )
+                    raise e
             else:
                 raise e
 
@@ -283,9 +293,15 @@ class SyncedRepo:
                 and "modules" in self.fullname
                 and "Your local changes to the following files would be overwritten by checkout" in str(e)
             ):
-                # Keep legacy force-checkout behavior for now; revisit policy in a dedicated follow-up.
-                log.debug(f"Overwriting local changes in '{self.local_repo_dir}'")
-                self.repo.git.checkout(self.branch, force=True)
+                if self._allow_force_checkout():
+                    log.warning(f"Overwriting local changes in '{self.local_repo_dir}' due to explicit opt-in.")
+                    self.repo.git.checkout(self.branch, force=True)
+                else:
+                    log.error(
+                        "Refusing to overwrite local changes during checkout. "
+                        "Commit/stash your changes first, or rerun with --force to opt in."
+                    )
+                    raise e
             else:
                 raise e
 

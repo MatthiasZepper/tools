@@ -27,13 +27,20 @@ class ComponentCommand:
         no_pull: bool = False,
         hide_progress: bool = False,
         no_prompts: bool = False,
+        force: bool = False,
     ) -> None:
         """
         Initialise the ComponentClass object
         """
         self.component_type: str = component_type
         self.directory: Path = Path(directory)
-        self.modules_repo = ModulesRepo(remote_url, branch, no_pull, hide_progress)
+        self.modules_repo = ModulesRepo(
+            remote_url,
+            branch,
+            no_pull,
+            hide_progress,
+            force_checkout=force,
+        )
         self.hide_progress: bool = hide_progress
         self.no_prompts: bool = no_prompts or not nf_core.utils.is_interactive()
         self.repo_type: str | None = None
@@ -220,14 +227,17 @@ class ComponentCommand:
                 self.modules_repo.setup_local_repo(
                     self.modules_repo.remote_url, self.modules_repo.branch, self.hide_progress
                 )
+                repo_path = self.modules_repo.repo_path
+                if repo_path is None:
+                    raise UserWarning("Could not determine modules repository org_path while repairing modules layout.")
                 # Move wrong modules to the right directory
                 for module in wrong_location_modules:
                     modules_dir = Path("modules").resolve()
-                    correct_dir = Path(modules_dir, self.modules_repo.repo_path, Path(*module.parts[2:]))
+                    correct_dir = Path(modules_dir, repo_path, Path(*module.parts[2:]))
                     wrong_dir = Path(modules_dir, module)
                     shutil.move(str(wrong_dir), str(correct_dir))
                     log.info(f"Moved {wrong_dir} to {correct_dir}.")
-                shutil.rmtree(Path(self.directory, "modules", self.modules_repo.repo_path, "modules"))
+                shutil.rmtree(Path(self.directory, "modules", repo_path, "modules"))
                 # Regenerate modules.json file
                 modules_json = ModulesJson(self.directory)
                 modules_json.check_up_to_date()

@@ -193,8 +193,14 @@ def get_components_to_install(
                         modules_repo = ModulesRepo(git_remote, branch=branch)
                         current_comp_dict = subworkflows if component_name in subworkflows else modules
 
+                        org_path = modules_repo.repo_path
+                        if org_path is None:
+                            raise UserWarning(
+                                f"Could not determine org_path for remote '{git_remote}' while parsing subworkflow meta."
+                            )
+
                         component_dict = {
-                            "org_path": modules_repo.repo_path,
+                            "org_path": org_path,
                             "git_remote": git_remote,
                             "branch": branch,
                         }

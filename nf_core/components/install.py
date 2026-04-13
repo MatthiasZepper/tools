@@ -39,8 +39,8 @@ class ComponentInstall(ComponentCommand):
         no_pull: bool = False,
         installed_by: list[str] | None = None,
     ):
-        super().__init__(component_type, pipeline_dir, remote_url, branch, no_pull)
-        self.current_remote = ModulesRepo(remote_url, branch)
+        super().__init__(component_type, pipeline_dir, remote_url, branch, no_pull, force=force)
+        self.current_remote = ModulesRepo(remote_url, branch, force_checkout=force)
         self.branch = branch
         self.force = force
         self.prompt = prompt
@@ -56,7 +56,7 @@ class ComponentInstall(ComponentCommand):
             # Override modules_repo when the component to install is a dependency from a subworkflow.
             remote_url = component.get("git_remote", self.current_remote.remote_url)
             branch = component.get("branch", self.branch)
-            self.modules_repo = ModulesRepo(remote_url, branch)
+            self.modules_repo = ModulesRepo(remote_url, branch, force_checkout=self.force)
             component = component["name"]
 
         if self.current_remote is None:

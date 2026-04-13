@@ -26,17 +26,26 @@ class ModulesRepo(SyncedRepo):
     pull a remote several times in one command.
     """
 
+    repo_path: str
+
     def __init__(
         self,
         remote_url: str | None = None,
         branch: str | None = None,
         no_pull: bool = False,
         hide_progress: bool = False,
+        force_checkout: bool = False,
     ) -> None:
         """
         Initializes the object and clones the git repository if it is not already present
         """
-        super().__init__(remote_url=remote_url, branch=branch, no_pull=no_pull, hide_progress=hide_progress)
+        super().__init__(
+            remote_url=remote_url,
+            branch=branch,
+            no_pull=no_pull,
+            hide_progress=hide_progress,
+            force_checkout=force_checkout,
+        )
 
         self.fullname = nf_core.modules.modules_utils.repo_full_name_from_remote(self.remote_url)
 
@@ -46,15 +55,16 @@ class ModulesRepo(SyncedRepo):
         if config_fn is None or repo_config is None:
             raise UserWarning(f"Could not find a configuration file in {self.local_repo_dir}")
         try:
-            self.repo_path = repo_config.org_path
+            org_path = repo_config.org_path
         except KeyError:
             raise UserWarning(f"'org_path' key not present in {config_fn.name}")
+        if org_path is None:
+            raise UserWarning(f"'org_path' is not set in {config_fn.name}")
+        self.repo_path = org_path
 
         # Verify that the repo seems to be correctly configured
         if self.repo_path != NF_CORE_MODULES_NAME or self.branch:
             self.verify_branch()
-        if self.repo_path is None:
-            raise UserWarning(f"Could not find the org_path in the configuration file: {config_fn.name}")
         # Convenience variable
         self.modules_dir = Path(self.local_repo_dir, "modules", self.repo_path)
         self.subworkflows_dir = Path(self.local_repo_dir, "subworkflows", self.repo_path)

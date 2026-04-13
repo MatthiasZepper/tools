@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+from git.exc import GitCommandError
 
 from nf_core.modules.modules_repo import ModulesRepo
 from nf_core.pipelines.download.workflow_repo import WorkflowRepo
@@ -98,3 +99,45 @@ def test_workflow_repo_setup_local_repo_uses_shared_bootstrap(tmp_path):
         True,
         skip_pull=repo.no_pull_global,
     )
+
+
+def test_checkout_fails_fast_on_local_changes_without_force():
+    repo = DummyRepo()
+    repo.fullname = "nf-core/modules"
+    repo.local_repo_dir = Path("/tmp/modules")
+    repo.branch = "master"
+    repo.allow_force_checkout = False
+    repo.repo = mock.Mock()
+    repo.repo.git.checkout.side_effect = GitCommandError(
+        "checkout",
+        1,
+        stderr="Your local changes to the following files would be overwritten by checkout",
+    )
+
+    with pytest.raises(GitCommandError):
+        repo.checkout_branch()
+
+    repo.repo.git.checkout.assert_called_once_with("master")
+
+
+def test_checkout_force_enabled_with_force():
+    repo = DummyRepo()
+    repo.fullname = "nf-core/modules"
+    repo.local_repo_dir = Path("/tmp/modules")
+    repo.branch = "master"
+    repo.allow_force_checkout = True
+    repo.repo = mock.Mock()
+    repo.repo.git.checkout.side_effect = [
+        GitCommandError(
+            "checkout",
+            1,
+            stderr="Your local changes to the following files would be overwritten by checkout",
+        ),
+        None,
+    ]
+
+    repo.checkout_branch()
+
+    assert repo.repo.git.checkout.call_count == 2
+    repo.repo.git.checkout.assert_any_call("master")
+    repo.repo.git.checkout.assert_any_call("master", force=True)

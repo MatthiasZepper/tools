@@ -40,8 +40,8 @@ class ComponentUpdate(ComponentCommand):
         no_pull=False,
         limit_output=False,
     ):
-        super().__init__(component_type, pipeline_dir, remote_url, branch, no_pull)
-        self.current_remote = ModulesRepo(remote_url, branch)
+        super().__init__(component_type, pipeline_dir, remote_url, branch, no_pull, force=force)
+        self.current_remote = ModulesRepo(remote_url, branch, force_checkout=force)
         self.branch = branch
         self.force = force
         self.prompt = prompt
@@ -98,7 +98,7 @@ class ComponentUpdate(ComponentCommand):
             # Override modules_repo when the component to install is a dependency from a subworkflow.
             remote_url = component.get("git_remote", self.current_remote.remote_url)
             branch = component.get("branch", self.branch)
-            self.modules_repo = ModulesRepo(remote_url, branch)
+            self.modules_repo = ModulesRepo(remote_url, branch, force_checkout=self.force)
             component = component["name"]
 
         self.component = component
@@ -697,7 +697,7 @@ class ComponentUpdate(ComponentCommand):
         repo_objs_comps = []
         for (repo_url, branch), comps_shas in repos_and_branches.items():
             try:
-                modules_repo = ModulesRepo(remote_url=repo_url, branch=branch)
+                modules_repo = ModulesRepo(remote_url=repo_url, branch=branch, force_checkout=self.force)
             except LookupError as e:
                 log.warning(e)
                 log.info(f"Skipping {self.component_type} in '{repo_url}'")

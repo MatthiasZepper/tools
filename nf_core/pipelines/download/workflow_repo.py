@@ -35,6 +35,7 @@ class WorkflowRepo(SyncedRepo):
         location=None,
         hide_progress=False,
         in_cache=True,
+        force_checkout=False,
     ):
         """
         Initializes the object and clones the workflows git repository if it is not already present
@@ -47,7 +48,7 @@ class WorkflowRepo(SyncedRepo):
             hide_progress (bool, optional): Whether to hide the progress bar. Defaults to False.
             in_cache (bool, optional): Whether to clone the repository from the cache. Defaults to False.
         """
-        super().__init__(remote_url=remote_url, hide_progress=hide_progress)
+        super().__init__(remote_url=remote_url, hide_progress=hide_progress, force_checkout=force_checkout)
 
         if isinstance(revision, str):
             self.revision = [revision]

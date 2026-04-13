@@ -179,7 +179,10 @@ class ModulesJson:
         renamed_dirs = {}
         # Check if there are any untracked repositories
 
-        dirs_not_covered = self.dir_tree_uncovered(directory, [Path(ModulesRepo(url).repo_path) for url in repos])
+        dirs_not_covered = self.dir_tree_uncovered(
+            directory,
+            [Path(ModulesRepo(url).repo_path) for url in repos if url is not None],
+        )
         if len(dirs_not_covered) > 0:
             log.info(f"Found custom {component_type[:-1]} repositories when creating 'modules.json'")
             # Loop until all directories in the base directory are covered by a remote
@@ -755,6 +758,9 @@ class ModulesJson:
         remote_url = modules_repo.remote_url
         branch = modules_repo.branch
 
+        if remote_url is None:
+            raise UserWarning("Cannot update modules.json without a configured modules repository remote URL.")
+
         if remote_url not in self.modules_json["repos"]:
             self.modules_json["repos"][remote_url] = {component_type: {repo_name: {}}}
         if component_type not in self.modules_json["repos"][remote_url]:
@@ -1081,6 +1087,8 @@ class ModulesJson:
         # Find all components that have an entry of install by of  a given component, recursively call this function for subworkflows
         for type in component_types:
             for repo_url in self.modules_json["repos"].keys():
+                if repo_url is None:
+                    continue
                 modules_repo = ModulesRepo(repo_url)
                 install_dir = modules_repo.repo_path
                 try:
