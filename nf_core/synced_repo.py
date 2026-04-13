@@ -7,10 +7,10 @@ from configparser import NoOptionError, NoSectionError
 from pathlib import Path
 
 import git
+import rich.progress
 from git.exc import GitCommandError
 
-from nf_core.components.constants import NF_CORE_MODULES_DEFAULT_BRANCH, NF_CORE_MODULES_NAME, NF_CORE_MODULES_REMOTE
-from nf_core.utils import load_tools_config
+from nf_core.components.constants import NF_CORE_MODULES_DEFAULT_BRANCH, NF_CORE_MODULES_REMOTE
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +97,8 @@ class SyncedRepo:
         else:
             branches = {}
             for branch_info in unparsed_branches.split("\n"):
+                if not branch_info.strip():
+                    continue
                 sha, name = branch_info.split("\t")
                 if name != "HEAD":
                     # The remote branches are shown as 'ref/head/branch'
@@ -106,51 +108,77 @@ class SyncedRepo:
 
     def __init__(self, remote_url=None, branch=None, no_pull=False, hide_progress=False):
         """
-        Initializes the object and clones the git repository if it is not already present
+        Initialize common synced-repo state.
+
+        Subclasses own the concrete setup flow and call :meth:`setup_local_repo`.
         """
-
-        # This allows us to set this one time and then keep track of the user's choice
         SyncedRepo.no_pull_global |= no_pull
-
-        # Check if the remote seems to be well formed
-        if remote_url is None:
-            remote_url = NF_CORE_MODULES_REMOTE
-
-        self.remote_url = remote_url
+        self.remote_url = remote_url or NF_CORE_MODULES_REMOTE
+        self.branch = branch
         self.fullname = None
         self.local_repo_dir = None
-
         self.repo = None
-        # TODO: SyncedRepo doesn't have this method and both the ModulesRepo and
-        # the WorkflowRepo define their own including custom init methods. This needs
-        # fixing.
-        self.setup_local_repo(remote_url, branch, hide_progress)
-
-        if self.local_repo_dir is None:
-            raise ValueError("Repository not initialized")
-        else:
-            config_fn, repo_config = load_tools_config(self.local_repo_dir)
-            if config_fn is not None and repo_config is not None:
-                try:
-                    self.repo_path = repo_config.org_path
-                except KeyError:
-                    raise UserWarning(f"'org_path' key not present in {config_fn.name}")
-
-            # Verify that the repo seems to be correctly configured
-            if self.repo_path != NF_CORE_MODULES_NAME or self.branch:
-                self.verify_branch()
-
-            # Convenience variable
-            self.modules_dir = Path(self.local_repo_dir, "modules", self.repo_path)
-            self.subworkflows_dir = Path(self.local_repo_dir, "subworkflows", self.repo_path)
-
-            self.avail_module_names = None
+        self.hide_progress = hide_progress
+        # Populated by subclasses that manage modules/subworkflows repositories.
+        self.repo_path: str | None = None
+        self.modules_dir: Path | None = None
+        self.subworkflows_dir: Path | None = None
+        self.avail_module_names = None
 
     def __repr__(self) -> str:
         return f"SyncedRepo({self.remote_url}, {self.branch})"
 
     def setup_local_repo(self, remote_url, branch, hide_progress):
         pass
+
+    def _progress_disabled(self, hide_progress: bool) -> bool:
+        return hide_progress or os.environ.get("HIDE_PROGRESS", None) is not None
+
+    def _clone_repo(self, remote: str, hide_progress: bool) -> None:
+        pbar = rich.progress.Progress(
+            "[bold blue]{task.description}",
+            rich.progress.BarColumn(bar_width=None),
+            "[bold yellow]{task.fields[state]}",
+            transient=True,
+            disable=self._progress_disabled(hide_progress),
+        )
+        with pbar:
+            self.repo = git.Repo.clone_from(
+                remote,
+                self.local_repo_dir,
+                progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Cloning"),
+            )
+        SyncedRepo.update_local_repo_status(self.fullname, True)
+
+    def _fetch_repo(self, hide_progress: bool) -> None:
+        pbar = rich.progress.Progress(
+            "[bold blue]{task.description}",
+            rich.progress.BarColumn(bar_width=None),
+            "[bold yellow]{task.fields[state]}",
+            transient=True,
+            disable=self._progress_disabled(hide_progress),
+        )
+        with pbar:
+            self.repo.remotes.origin.fetch(progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Pulling"))
+        SyncedRepo.update_local_repo_status(self.fullname, True)
+
+    def _open_or_clone_repo(self, remote: str, hide_progress: bool, skip_pull: bool = False) -> bool:
+        """
+        Open an existing local repository or clone it if missing.
+
+        Returns:
+            bool: True if repository was cloned, False if opened from disk.
+        """
+        if not self.local_repo_dir.exists():
+            self._clone_repo(remote, hide_progress)
+            return True
+
+        self.repo = git.Repo(self.local_repo_dir)
+        if skip_pull:
+            SyncedRepo.update_local_repo_status(self.fullname, True)
+        if not SyncedRepo.local_repo_synced(self.fullname):
+            self._fetch_repo(hide_progress)
+        return False
 
     def verify_sha(self, prompt, sha):
         """
@@ -234,6 +262,7 @@ class SyncedRepo:
                 and "modules" in self.fullname
                 and "Your local changes to the following files would be overwritten by checkout" in str(e)
             ):
+                # Keep legacy force-checkout behavior for now; revisit policy in a dedicated follow-up.
                 log.debug(f"Overwriting local changes in '{self.local_repo_dir}'")
                 self.repo.git.checkout(self.branch, force=True)
             else:
@@ -254,6 +283,7 @@ class SyncedRepo:
                 and "modules" in self.fullname
                 and "Your local changes to the following files would be overwritten by checkout" in str(e)
             ):
+                # Keep legacy force-checkout behavior for now; revisit policy in a dedicated follow-up.
                 log.debug(f"Overwriting local changes in '{self.local_repo_dir}'")
                 self.repo.git.checkout(self.branch, force=True)
             else:
@@ -282,8 +312,12 @@ class SyncedRepo:
             component_path (str): The path of the module/subworkflow in the local copy of the repository
         """
         if component_type == "modules":
+            if self.modules_dir is None:
+                raise ValueError("Repository modules directory is not initialized")
             return Path(self.modules_dir, component_name)
         elif component_type == "subworkflows":
+            if self.subworkflows_dir is None:
+                raise ValueError("Repository subworkflows directory is not initialized")
             return Path(self.subworkflows_dir, component_name)
         else:
             raise ValueError(f"Invalid component type: {component_type}")
@@ -380,6 +414,8 @@ class SyncedRepo:
         """
         if self.repo is None:
             raise ValueError("Repository not initialized")
+        if self.repo_path is None:
+            raise ValueError("Repository org_path is not initialized")
         self.checkout_branch()
         component_path = Path(component_type, self.repo_path, component_name)
 
@@ -462,9 +498,15 @@ class SyncedRepo:
             self.checkout(commit)
         # Get directory
         if component_type == "modules":
+            if self.modules_dir is None:
+                raise ValueError("Repository modules directory is not initialized")
             directory = self.modules_dir
         elif component_type == "subworkflows":
+            if self.subworkflows_dir is None:
+                raise ValueError("Repository subworkflows directory is not initialized")
             directory = self.subworkflows_dir
+        else:
+            raise ValueError(f"Invalid component type: {component_type}")
         # Module/Subworkflow directories are characterized by having a 'main.nf' file
         avail_component_names = [
             str(Path(dirpath).relative_to(directory)) for dirpath, _, files in os.walk(directory) if "main.nf" in files
@@ -483,8 +525,12 @@ class SyncedRepo:
         """
         self.checkout_branch()
         if component_type == "modules":
+            if self.modules_dir is None:
+                raise ValueError("Repository modules directory is not initialized")
             path = Path(self.modules_dir, module_name, "meta.yml")
         elif component_type == "subworkflows":
+            if self.subworkflows_dir is None:
+                raise ValueError("Repository subworkflows directory is not initialized")
             path = Path(self.subworkflows_dir, module_name, "meta.yml")
         else:
             raise ValueError(f"Invalid component type: {component_type}")

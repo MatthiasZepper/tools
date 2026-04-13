@@ -1,17 +1,14 @@
 import logging
-import os
 import shutil
 from pathlib import Path
 
-import git
 import rich
-import rich.progress
 import rich.prompt
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
 import nf_core.modules.modules_utils
 from nf_core.components.constants import NF_CORE_MODULES_NAME, NF_CORE_MODULES_REMOTE
-from nf_core.synced_repo import RemoteProgressbar, SyncedRepo
+from nf_core.synced_repo import SyncedRepo
 from nf_core.utils import NFCORE_CACHE_DIR, NFCORE_DIR, load_tools_config
 
 log = logging.getLogger(__name__)
@@ -28,9 +25,6 @@ class ModulesRepo(SyncedRepo):
     the static variable local_repo_status. This is so we don't need to
     pull a remote several times in one command.
     """
-
-    local_repo_statuses = {}
-    no_pull_global = False
 
     def __init__(
         self,
@@ -94,51 +88,10 @@ class ModulesRepo(SyncedRepo):
         """
         self.local_repo_dir = Path(NFCORE_DIR if not in_cache else NFCORE_CACHE_DIR, self.fullname)
         try:
-            if not os.path.exists(self.local_repo_dir):
-                try:
-                    pbar = rich.progress.Progress(
-                        "[bold blue]{task.description}",
-                        rich.progress.BarColumn(bar_width=None),
-                        "[bold yellow]{task.fields[state]}",
-                        transient=True,
-                        disable=hide_progress or os.environ.get("HIDE_PROGRESS", None) is not None,
-                    )
-                    with pbar:
-                        self.repo = git.Repo.clone_from(
-                            remote,
-                            self.local_repo_dir,
-                            progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Cloning"),
-                        )
-                    ModulesRepo.update_local_repo_status(self.fullname, True)
-                except GitCommandError:
-                    raise LookupError(f"Failed to clone from the remote: `{remote}`")
-                # Verify that the requested branch exists by checking it out
-                self.setup_branch(branch)
-            else:
-                self.repo = git.Repo(self.local_repo_dir)
-
-                if ModulesRepo.no_pull_global:
-                    ModulesRepo.update_local_repo_status(self.fullname, True)
-                # If the repo is already cloned, fetch the latest changes from the remote
-                if not ModulesRepo.local_repo_synced(self.fullname):
-                    pbar = rich.progress.Progress(
-                        "[bold blue]{task.description}",
-                        rich.progress.BarColumn(bar_width=None),
-                        "[bold yellow]{task.fields[state]}",
-                        transient=True,
-                        disable=hide_progress or os.environ.get("HIDE_PROGRESS", None) is not None,
-                    )
-                    with pbar:
-                        self.repo.remotes.origin.fetch(
-                            progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Pulling")
-                        )
-                    ModulesRepo.update_local_repo_status(self.fullname, True)
-
-                # Before verifying the branch, fetch the changes
-                # Verify that the requested branch exists by checking it out
-                self.setup_branch(branch)
-
-                # Now merge the changes
+            cloned = self._open_or_clone_repo(remote, hide_progress, skip_pull=ModulesRepo.no_pull_global)
+            self.setup_branch(branch)
+            if not cloned:
+                # Keep merge behavior unchanged for existing repositories.
                 tracking_branch = self.repo.active_branch.tracking_branch()
                 if tracking_branch is None:
                     raise LookupError(f"There is no remote tracking branch '{self.branch}' in '{self.remote_url}'")

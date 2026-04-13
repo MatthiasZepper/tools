@@ -1,10 +1,8 @@
 import logging
-import os
 import re
 import shutil
 from pathlib import Path
 
-import git
 import rich
 from git.exc import GitCommandError, InvalidGitRepositoryError
 from packaging.version import Version
@@ -12,7 +10,7 @@ from packaging.version import Version
 import nf_core
 import nf_core.modules.modules_utils
 from nf_core.pipelines.download.utils import DownloadError
-from nf_core.synced_repo import RemoteProgressbar, SyncedRepo
+from nf_core.synced_repo import SyncedRepo
 from nf_core.utils import NFCORE_CACHE_DIR, NFCORE_DIR
 
 log = logging.getLogger(__name__)
@@ -84,12 +82,6 @@ class WorkflowRepo(SyncedRepo):
         else:
             return None
 
-    def checkout(self, commit):
-        return super().checkout(commit)
-
-    def get_remote_branches(self, remote_url):
-        return super().get_remote_branches(remote_url)
-
     def retry_setup_local_repo(self, skip_confirm=False):
         self.retries += 1
         if not skip_confirm and not nf_core.utils.is_interactive():
@@ -132,46 +124,10 @@ class WorkflowRepo(SyncedRepo):
             )
 
         try:
-            if not self.local_repo_dir.exists():
-                try:
-                    pbar = rich.progress.Progress(
-                        "[bold blue]{task.description}",
-                        rich.progress.BarColumn(bar_width=None),
-                        "[bold yellow]{task.fields[state]}",
-                        transient=True,
-                        disable=os.environ.get("HIDE_PROGRESS", None) is not None or self.hide_progress,
-                    )
-                    with pbar:
-                        self.repo = git.Repo.clone_from(
-                            remote,
-                            self.local_repo_dir,
-                            progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Cloning"),
-                        )
-                    super().update_local_repo_status(self.fullname, True)
-                except GitCommandError:
-                    raise DownloadError(f"Failed to clone from the remote: `{remote}`")
-            else:
-                self.repo = git.Repo(self.local_repo_dir)
-
-                if super().no_pull_global:
-                    super().update_local_repo_status(self.fullname, True)
-                # If the repo is already cloned, fetch the latest changes from the remote
-                if not super().local_repo_synced(self.fullname):
-                    pbar = rich.progress.Progress(
-                        "[bold blue]{task.description}",
-                        rich.progress.BarColumn(bar_width=None),
-                        "[bold yellow]{task.fields[state]}",
-                        transient=True,
-                        disable=os.environ.get("HIDE_PROGRESS", None) is not None or self.hide_progress,
-                    )
-                    with pbar:
-                        self.repo.remotes.origin.fetch(
-                            progress=RemoteProgressbar(pbar, self.fullname, self.remote_url, "Pulling")
-                        )
-                    super().update_local_repo_status(self.fullname, True)
+            self._open_or_clone_repo(remote, self.hide_progress, skip_pull=self.no_pull_global)
 
         except (GitCommandError, InvalidGitRepositoryError) as e:
-            log.error(f"[red]Could not set up local cache of modules repository:[/]\n{e}\n")
+            log.error(f"[red]Could not set up local cache of workflow repository:[/]\n{e}\n")
             self.retry_setup_local_repo()
 
     def tidy_tags_and_branches(self):
