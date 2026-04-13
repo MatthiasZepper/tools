@@ -238,13 +238,14 @@ class ComponentsTest(ComponentCommand):  # type: ignore[misc]
         """Run the nf-test twice and check if the snapshot changes"""
         log.info("Generating nf-test snapshot")
         if not self.generate_snapshot():
+            self.errors.append("nf-test snapshot generation failed")
             return False  # stop here if the first run failed
         elif self.once:
             return True  # stop here if the test should be run only once
         log.info("Generating nf-test snapshot again to check stability")
         if not self.generate_snapshot():
             log.error("nf-test snapshot is not stable")
-            self.errors.append("nf-test snapshot is not stable")
+            self.errors.append("nf-test snapshot is not stable: second nf-test run failed or produced differences")
             return False
 
         else:
