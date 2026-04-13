@@ -47,7 +47,8 @@ class WorkflowRepo(SyncedRepo):
             hide_progress (bool, optional): Whether to hide the progress bar. Defaults to False.
             in_cache (bool, optional): Whether to clone the repository from the cache. Defaults to False.
         """
-        self.remote_url = remote_url
+        super().__init__(remote_url=remote_url, hide_progress=hide_progress)
+
         if isinstance(revision, str):
             self.revision = [revision]
         elif isinstance(revision, list):
@@ -57,7 +58,6 @@ class WorkflowRepo(SyncedRepo):
         self.revision_to_commit: dict[str, str] = dict(revision_commits) if isinstance(revision_commits, dict) else {}
         self.fullname = nf_core.modules.modules_utils.repo_full_name_from_remote(self.remote_url)
         self.retries = 0  # retries for setting up the locally cached repository
-        self.hide_progress = hide_progress
 
         self.setup_local_repo(remote=remote_url, location=location, in_cache=in_cache)
 

@@ -7,7 +7,7 @@ import rich.prompt
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
 import nf_core.modules.modules_utils
-from nf_core.components.constants import NF_CORE_MODULES_NAME, NF_CORE_MODULES_REMOTE
+from nf_core.components.constants import NF_CORE_MODULES_NAME
 from nf_core.synced_repo import SyncedRepo
 from nf_core.utils import NFCORE_CACHE_DIR, NFCORE_DIR, load_tools_config
 
@@ -36,19 +36,11 @@ class ModulesRepo(SyncedRepo):
         """
         Initializes the object and clones the git repository if it is not already present
         """
-
-        # This allows us to set this one time and then keep track of the user's choice
-        ModulesRepo.no_pull_global |= no_pull
-
-        # Check if the remote seems to be well formed
-        if remote_url is None:
-            remote_url = NF_CORE_MODULES_REMOTE
-
-        self.remote_url = remote_url
+        super().__init__(remote_url=remote_url, branch=branch, no_pull=no_pull, hide_progress=hide_progress)
 
         self.fullname = nf_core.modules.modules_utils.repo_full_name_from_remote(self.remote_url)
 
-        self.setup_local_repo(remote_url, branch, hide_progress)
+        self.setup_local_repo(self.remote_url, branch, hide_progress)
 
         config_fn, repo_config = load_tools_config(self.local_repo_dir)
         if config_fn is None or repo_config is None:

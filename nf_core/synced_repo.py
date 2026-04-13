@@ -129,7 +129,7 @@ class SyncedRepo:
         return f"SyncedRepo({self.remote_url}, {self.branch})"
 
     def setup_local_repo(self, remote_url, branch, hide_progress):
-        pass
+        raise NotImplementedError("Subclasses must implement setup_local_repo().")
 
     def _progress_disabled(self, hide_progress: bool) -> bool:
         return hide_progress or os.environ.get("HIDE_PROGRESS", None) is not None
